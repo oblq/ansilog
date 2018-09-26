@@ -1,0 +1,10 @@
+level: debug # panic fatal error warn warning info debug
+stacktrace: true
+postgreslevel: warn # panic fatal error warn/warning info debug - empty for no logs on postgres
+
+postgres: #log errors on postgres, comment if you don't want postgres
+  host: tasks.postgis # private IP
+  port: 5432
+  db: "postgres"
+  user: "postgres"
+  password: "mypass"

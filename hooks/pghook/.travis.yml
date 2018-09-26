@@ -1,0 +1,12 @@
+language: go
+go:
+  - 1.7
+  - tip
+services:
+  - postgresql
+addons:
+  postgresql: "9.4"
+  hosts:
+    - postgres
+before_script:
+  - psql -U postgres < migrations/create_table_logs.sql
