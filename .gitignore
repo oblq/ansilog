@@ -16,7 +16,7 @@ excluded
 
 ### JetBrains template
 
-.idea/
+.idea
 
 # File-based project format
 *.iws

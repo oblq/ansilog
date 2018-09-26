@@ -1,2 +1,0 @@
-test http servers:
-go get -u github.com/rakyll/hey
