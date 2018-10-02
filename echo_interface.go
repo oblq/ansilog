@@ -103,7 +103,6 @@ func (l Logger) Panicj(j log.JSON) {
 
 // EchoHTTPErrorHandler is a custom echo http error handler which add some useful info to the log
 func (l *Logger) EchoHTTPErrorHandler(err error, c echo.Context) {
-
 	if he, ok := err.(*echo.HTTPError); ok {
 
 		if he.Code > 399 &&

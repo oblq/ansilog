@@ -10,6 +10,8 @@ import (
 	"text/template"
 	"time"
 
+	"github.com/urfave/negroni"
+
 	"github.com/labstack/echo"
 )
 
@@ -25,7 +27,7 @@ import (
 // 	UserAgent
 // 	RequestURI
 // 	Proto
-const defaultLogFormat = "{{.Time}} | {{.Status}} | {{.Method}} | {{.Duration}} | {{.ContentLength}} | {{.Host}} | {{.RequestURI}} "
+const defaultLogFormat = "{{.Time}} | {{.Duration}} | {{.Status}} | {{.Method}} | {{.Host}} | {{.RequestURI}} "
 
 // Compatible with negroni custom ResponseWriter
 type customRW interface {
@@ -78,7 +80,7 @@ type HTTPlogger struct {
 func DefaultHTTPLogger(prefix string) *HTTPlogger {
 	return &HTTPlogger{
 		Logger:     log.New(os.Stdout, Blue("[")+prefix+Blue("] "), 0),
-		TimeFormat: "2006-01-02 15:04:05",
+		TimeFormat: time.RFC822Z, //"2006-01-02 15:04:05",
 		Template:   template.Must(template.New("goms_parser").Parse(defaultLogFormat)),
 	}
 }
@@ -107,16 +109,16 @@ func (hl *HTTPlogger) trace(rw interface{}, r *http.Request, start time.Time) {
 		RequestURI    string
 		UserAgent     string
 	}{
-		Time:          start.Format(hl.TimeFormat),
-		Proto:         r.Proto,
-		RemoteAddr:    fmt.Sprintf("%-14s", r.RemoteAddr),
-		Status:        hl.fetchStatusCode(rw),
-		Method:        fmt.Sprintf("%-7s", r.Method),
-		Duration:      fmt.Sprintf("%12s", duration),
-		ContentLength: fmt.Sprintf("%12s bytes", hl.fetchLength(rw)),
-		Host:          r.Host,
-		RequestURI:    r.RequestURI,
-		UserAgent:     r.UserAgent(),
+		Time:       start.Format(hl.TimeFormat),
+		Proto:      r.Proto,
+		RemoteAddr: fmt.Sprintf("%-14s", r.RemoteAddr),
+		Status:     hl.fetchStatusCode(rw),
+		Method:     fmt.Sprintf("%-7s", r.Method),
+		Duration:   fmt.Sprintf("%20s", duration),
+		//ContentLength: fmt.Sprintf("%12s bytes", hl.fetchLength(rw)),
+		Host:       fmt.Sprintf("%-22s", r.Host),
+		RequestURI: r.RequestURI, // path will exclude '/v1'
+		UserAgent:  r.UserAgent(),
 	}
 	buff := &bytes.Buffer{}
 	if err := hl.Template.Execute(buff, metricsEntry); err != nil {
@@ -164,6 +166,14 @@ func (hl *HTTPlogger) fetchLength(rw interface{}) string {
 }
 
 // Middleware ----------------------------------------------------------------------------------------------------------
+
+// Negroni interface
+func (hl *HTTPlogger) ServeHTTP(rw http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
+	start := time.Now()
+	nrw := negroni.NewResponseWriter(rw)
+	defer hl.trace(nrw, r, start)
+	next(nrw, r)
+}
 
 // HTTPLogHandlerFunc is an http.HandlerFunc middleware.
 func (hl *HTTPlogger) HTTPLogHandlerFunc(next http.HandlerFunc) http.HandlerFunc {
