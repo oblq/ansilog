@@ -50,6 +50,10 @@ func (l Logger) Level() log.Lvl {
 	return log.OFF
 }
 
+func (l *Logger) SetHeader(h string) {
+	//l.template = l.newTemplate(h)
+}
+
 // SetLevel set the log level
 func (l Logger) SetLevel(lvl log.Lvl) {
 	switch lvl {
