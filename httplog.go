@@ -81,7 +81,7 @@ func DefaultHTTPLogger(prefix string) *HTTPlogger {
 	return &HTTPlogger{
 		Logger:     log.New(os.Stdout, Blue("[")+prefix+Blue("] "), 0),
 		TimeFormat: time.RFC822Z, //"2006-01-02 15:04:05",
-		Template:   template.Must(template.New("goms_parser").Parse(defaultLogFormat)),
+		Template:   template.Must(template.New("ansilog_parser").Parse(defaultLogFormat)),
 	}
 }
 
@@ -91,7 +91,7 @@ func NewHTTPLogger(prefix, timeFormat, templateFormat string) *HTTPlogger {
 	return &HTTPlogger{
 		Logger:     log.New(os.Stdout, Blue("[")+prefix+Blue("] "), 0),
 		TimeFormat: timeFormat,
-		Template:   template.Must(template.New("goms_parser").Parse(templateFormat)),
+		Template:   template.Must(template.New("ansilog_parser").Parse(templateFormat)),
 	}
 }
 

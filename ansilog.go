@@ -7,6 +7,8 @@ import (
 	"fmt"
 )
 
+var DisableColor = false
+
 type color string
 
 // Color ANSI codes
@@ -124,6 +126,9 @@ func White(arg interface{}) string {
 
 // colored return the ANSI colored formatted string.
 func colorize(arg string, color color) string {
+	if DisableColor {
+		return arg
+	}
 	coloredFormat := "%v"
 	if len(color) > 0 {
 		coloredFormat = esc + "%vm%v" + clear
