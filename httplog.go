@@ -10,9 +10,8 @@ import (
 	"text/template"
 	"time"
 
-	"github.com/urfave/negroni"
-
 	"github.com/labstack/echo"
+	"github.com/urfave/negroni"
 )
 
 // logFormat is the default format used by fmt.
