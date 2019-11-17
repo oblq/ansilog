@@ -14,24 +14,113 @@ import (
 	"github.com/urfave/negroni"
 )
 
-// logFormat is the default format used by fmt.
-// Possible fields are:
-// 	Time
-// 	Status
-// 	Duration
-// 	Host
-// 	Method
-// 	ContentLength
-// 	RemoteAddr
-// 	UserAgent
-// 	RequestURI
-// 	Proto
-const defaultLogFormat = "{{.Time}} | {{.Duration}} | {{.Status}} | {{.Method}} | {{.Host}} | {{.RequestURI}} "
+const defaultLogTemplate = "{{.Time}} | {{.Duration}} | {{.Status}} | {{.Method}} | {{.Host}} | {{.RequestURI}}"
 
-// Compatible with negroni custom ResponseWriter
-type customRW interface {
-	Status() int
+// HttpTracer is a middleware that logs http requests.
+type HttpTracer struct {
+	*log.Logger
+
+	TimeFormat string
+
+	// Template is the log template used by fmt.
+	// Possible fields are:
+	// 	Time
+	// 	Status
+	// 	Duration
+	// 	Host
+	// 	Method
+	// 	ContentLength
+	// 	RemoteAddr
+	// 	UserAgent
+	// 	RequestURI
+	// 	Proto
+	// Default format is: "{{.Time}} | {{.Duration}} | {{.Status}} | {{.Method}} | {{.Host}} | {{.RequestURI}}"
+	Template *template.Template
 }
+
+// NewHttpTracer returns a new HttpTracer instance.
+func NewHttpTracer(prefix string) *HttpTracer {
+	return &HttpTracer{
+		Logger:     log.New(os.Stdout, Blue("[")+Yellow(prefix)+Blue("] "), 0),
+		TimeFormat: time.RFC822Z, //"2006-01-02 15:04:05"
+		Template:   template.Must(template.New("ansilog_parser").Parse(defaultLogTemplate)),
+	}
+}
+
+func (hl *HttpTracer) trace(rw interface{}, r *http.Request, start time.Time) {
+	duration := time.Since(start)
+
+	metricsEntry := struct {
+		Time          string
+		Proto         string
+		RemoteAddr    string
+		Status        string
+		Method        string
+		Duration      string
+		ContentLength string
+		Host          string
+		RequestURI    string
+		UserAgent     string
+	}{
+		Time:       start.Format(hl.TimeFormat),
+		Proto:      r.Proto,
+		RemoteAddr: fmt.Sprintf("%-14s", r.RemoteAddr),
+		Status:     hl.fetchStatusCode(rw),
+		Method:     fmt.Sprintf("%-7s", r.Method),
+		Duration:   fmt.Sprintf("%20s", duration),
+		//ContentLength: fmt.Sprintf("%12s bytes", hl.fetchLength(rw)),
+		Host:       fmt.Sprintf("%-22s", r.Host),
+		RequestURI: r.RequestURI, // path will exclude '/v1'
+		UserAgent:  r.UserAgent(),
+	}
+	buff := &bytes.Buffer{}
+	if err := hl.Template.Execute(buff, metricsEntry); err != nil {
+		fmt.Println(Red(err))
+	} else {
+		hl.Println(buff.String())
+	}
+}
+
+// fetchStatusCode attempts to see if the passed type implements a Status() method.
+// If so, it is called and the value is returned.
+func (hl *HttpTracer) fetchStatusCode(rw interface{}) string {
+	statusCode := 0
+
+	// Compatible with negroni custom ResponseWriter
+	if crw, ok := rw.(interface{ Status() int }); ok {
+		statusCode = crw.Status()
+	} else if echoResponse, ok := rw.(*echo.Response); ok {
+		statusCode = echoResponse.Status
+	}
+
+	switch {
+	case statusCode < 300:
+		return Green(strconv.Itoa(statusCode))
+	case statusCode >= 300 && statusCode < 400:
+		// redirects
+		return Cyan(strconv.Itoa(statusCode))
+	case statusCode >= 400 && statusCode < 500:
+		// client errors
+		return Magenta(strconv.Itoa(statusCode))
+	case statusCode >= 500:
+		// server error
+		return Red(strconv.Itoa(statusCode))
+	default:
+		return Red("unknown status")
+	}
+}
+
+func (hl *HttpTracer) fetchLength(rw interface{}) string {
+	var length int
+	if crw, ok := rw.(responseWriter); ok {
+		length = crw.Size()
+	} else if echoResponse, ok := rw.(*echo.Response); ok {
+		length = int(echoResponse.Size)
+	}
+	return strconv.Itoa(length)
+}
+
+// Middleware ----------------------------------------------------------------------------------------------------------
 
 // responseWriter is a custom http.ResponseWriter that holds statusCode and contentLength
 type responseWriter struct {
@@ -66,116 +155,8 @@ func (rw *responseWriter) Size() int {
 	return rw.size
 }
 
-// HTTPlogger is a middleware that logs http requests.
-type HTTPlogger struct {
-	*log.Logger
-
-	TimeFormat string
-	Template   *template.Template
-}
-
-// DefaultHTTPLogger returns a new default httplog instance.
-// Also a Negroni interface.
-func DefaultHTTPLogger(prefix string) *HTTPlogger {
-	return &HTTPlogger{
-		Logger:     log.New(os.Stdout, Blue("[")+prefix+Blue("] "), 0),
-		TimeFormat: time.RFC822Z, //"2006-01-02 15:04:05",
-		Template:   template.Must(template.New("ansilog_parser").Parse(defaultLogFormat)),
-	}
-}
-
-// NewHTTPLogger returns a new httplog instance.
-// Also a Negroni interface.
-func NewHTTPLogger(prefix, timeFormat, templateFormat string) *HTTPlogger {
-	return &HTTPlogger{
-		Logger:     log.New(os.Stdout, Blue("[")+prefix+Blue("] "), 0),
-		TimeFormat: timeFormat,
-		Template:   template.Must(template.New("ansilog_parser").Parse(templateFormat)),
-	}
-}
-
-func (hl *HTTPlogger) trace(rw interface{}, r *http.Request, start time.Time) {
-	duration := time.Since(start)
-	metricsEntry := struct {
-		Time          string
-		Proto         string
-		RemoteAddr    string
-		Status        string
-		Method        string
-		Duration      string
-		ContentLength string
-		Host          string
-		RequestURI    string
-		UserAgent     string
-	}{
-		Time:       start.Format(hl.TimeFormat),
-		Proto:      r.Proto,
-		RemoteAddr: fmt.Sprintf("%-14s", r.RemoteAddr),
-		Status:     hl.fetchStatusCode(rw),
-		Method:     fmt.Sprintf("%-7s", r.Method),
-		Duration:   fmt.Sprintf("%20s", duration),
-		//ContentLength: fmt.Sprintf("%12s bytes", hl.fetchLength(rw)),
-		Host:       fmt.Sprintf("%-22s", r.Host),
-		RequestURI: r.RequestURI, // path will exclude '/v1'
-		UserAgent:  r.UserAgent(),
-	}
-	buff := &bytes.Buffer{}
-	if err := hl.Template.Execute(buff, metricsEntry); err != nil {
-		fmt.Println(Red(err))
-	} else {
-		hl.Println(buff.String())
-	}
-}
-
-// fetchStatusCode attempts to see if the passed type implements a Status() method.
-// If so, it is called and the value is returned.
-func (hl *HTTPlogger) fetchStatusCode(rw interface{}) string {
-	statusCode := 0
-	if crw, ok := rw.(customRW); ok {
-		statusCode = crw.Status()
-	} else if echoResponse, ok := rw.(*echo.Response); ok {
-		statusCode = echoResponse.Status
-	}
-
-	switch {
-	case statusCode < 300:
-		return Green(strconv.Itoa(statusCode))
-	case statusCode >= 300 && statusCode < 400:
-		// redirects
-		return Cyan(strconv.Itoa(statusCode))
-	case statusCode >= 400 && statusCode < 500:
-		// client errors
-		return Magenta(strconv.Itoa(statusCode))
-	case statusCode >= 500:
-		// server error
-		return Red(strconv.Itoa(statusCode))
-	default:
-		return Red("unknown status")
-	}
-}
-
-func (hl *HTTPlogger) fetchLength(rw interface{}) string {
-	var length int
-	if crw, ok := rw.(responseWriter); ok {
-		length = crw.Size()
-	} else if echoResponse, ok := rw.(*echo.Response); ok {
-		length = int(echoResponse.Size)
-	}
-	return strconv.Itoa(length)
-}
-
-// Middleware ----------------------------------------------------------------------------------------------------------
-
-// Negroni interface
-func (hl *HTTPlogger) ServeHTTP(rw http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
-	start := time.Now()
-	nrw := negroni.NewResponseWriter(rw)
-	defer hl.trace(nrw, r, start)
-	next(nrw, r)
-}
-
 // HTTPLogHandlerFunc is an http.HandlerFunc middleware.
-func (hl *HTTPlogger) HTTPLogHandlerFunc(next http.HandlerFunc) http.HandlerFunc {
+func (hl *HttpTracer) HandlerFunc(next http.HandlerFunc) http.HandlerFunc {
 	return func(rw http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		nrw := &responseWriter{rw, http.StatusOK, 0}
@@ -185,7 +166,7 @@ func (hl *HTTPlogger) HTTPLogHandlerFunc(next http.HandlerFunc) http.HandlerFunc
 }
 
 // HTTPLogHandler is an http.Handler middleware.
-func (hl *HTTPlogger) HTTPLogHandler(next http.Handler) http.Handler {
+func (hl *HttpTracer) Handler(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		nrw := &responseWriter{rw, http.StatusOK, 0}
@@ -195,7 +176,7 @@ func (hl *HTTPlogger) HTTPLogHandler(next http.Handler) http.Handler {
 }
 
 // EchoHTTPHandler is an Echo middleware.
-func (hl *HTTPlogger) EchoHTTPHandler(next echo.HandlerFunc) echo.HandlerFunc {
+func (hl *HttpTracer) EchoMiddlewareFunc(next echo.HandlerFunc) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		r := c.Request()
 		start := time.Now()
@@ -205,4 +186,12 @@ func (hl *HTTPlogger) EchoHTTPHandler(next echo.HandlerFunc) echo.HandlerFunc {
 		}
 		return nil
 	}
+}
+
+// Negroni interface
+func (hl *HttpTracer) ServeHTTP(rw http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
+	start := time.Now()
+	nrw := negroni.NewResponseWriter(rw)
+	defer hl.trace(nrw, r, start)
+	next(nrw, r)
 }

@@ -1,138 +1,146 @@
-// Package ansilog is a minimal helper to print colored text.
-// See https://misc.flogisoft.com/bash/tip_colors_and_formatting
-// and: https://en.wikipedia.org/wiki/ANSI_escape_code#Colors
 package ansilog
 
 import (
+	"database/sql"
 	"fmt"
+	"io/ioutil"
+	"os"
+
+	"github.com/oblq/ansilog/internal/hooks/pghook"
+	"github.com/oblq/ansilog/internal/hooks/stack_trace"
+	"github.com/oblq/sprbox"
+	"github.com/sirupsen/logrus"
 )
 
-var DisableColor = false
+type Config struct {
+	Level string
 
-type color string
+	// StackTrace will extract stack-trace from errors created
+	// with "github.com/pkg/errors" package
+	// using Wrap() or WithStack() funcs.
+	StackTrace bool
 
-// Color ANSI codes
-const (
-	//defaultFG color = "39"
+	// Postgres
+	PostgresLevel string
+	Host          string
+	Port          int
+	DB            string
+	User          string
+	Password      string
+}
 
-	black        color = "97" // inverted with white
-	red          color = "31"
-	green        color = "32"
-	yellow       color = "33"
-	blue         color = "34"
-	magenta      color = "35"
-	cyan         color = "36"
-	lightGrey    color = "37"
-	darkGrey     color = "90"
-	lightRed     color = "91"
-	lightGreen   color = "92"
-	lightYellow  color = "93"
-	lightBlue    color = "94"
-	lightMagenta color = "95"
-	lightCyan    color = "96"
-	white        color = "30" // inverted with black
+type Logger struct {
+	*logrus.Logger
+}
 
-	esc   = "\033["
-	clear = "\033[0m"
-)
+func NewLogger(configFilePath string, config *Config) (logger *Logger, err error) {
+	logger = &Logger{Logger: logrus.New()}
 
-type painter func(interface{}) string
-
-func dynamicPainter(color color) painter {
-	return func(arg interface{}) string {
-		return colorize(fmt.Sprint(arg), color)
+	if len(configFilePath) > 0 {
+		var compsConfigFile []byte
+		if compsConfigFile, err = ioutil.ReadFile(configFilePath); err != nil {
+			return
+		} else if err = sprbox.Unmarshal(compsConfigFile, &config); err != nil {
+			return
+		}
 	}
+
+	err = logger.setup(config)
+	return
 }
 
-// Black return the argument as a color escaped string
-func Black(arg interface{}) string {
-	return colorize(fmt.Sprint(arg), black)
-}
+func (l *Logger) SpareConfig(configFiles []string) (err error) {
+	l.Logger = logrus.New()
 
-// Red return the argument as a color escaped string
-func Red(arg interface{}) string {
-	return colorize(fmt.Sprint(arg), red)
-}
-
-// Green return the argument as a color escaped string
-func Green(arg interface{}) string {
-	return colorize(fmt.Sprint(arg), green)
-}
-
-// Yellow return the argument as a color escaped string
-func Yellow(arg interface{}) string {
-	return colorize(fmt.Sprint(arg), yellow)
-}
-
-// Blue return the argument as a color escaped string
-func Blue(arg interface{}) string {
-	return colorize(fmt.Sprint(arg), blue)
-}
-
-// Magenta return the argument as a color escaped string
-func Magenta(arg interface{}) string {
-	return colorize(fmt.Sprint(arg), magenta)
-}
-
-// Cyan return the argument as a color escaped string
-func Cyan(arg interface{}) string {
-	return colorize(fmt.Sprint(arg), cyan)
-}
-
-// LightGrey return the argument as a color escaped string
-func LightGrey(arg interface{}) string {
-	return colorize(fmt.Sprint(arg), lightGrey)
-}
-
-// DarkGrey return the argument as a color escaped string
-func DarkGrey(arg interface{}) string {
-	return colorize(fmt.Sprint(arg), darkGrey)
-}
-
-// LightRed return the argument as a color escaped string
-func LightRed(arg interface{}) string {
-	return colorize(fmt.Sprint(arg), lightRed)
-}
-
-// LightGreen return the argument as a color escaped string
-func LightGreen(arg interface{}) string {
-	return colorize(fmt.Sprint(arg), lightGreen)
-}
-
-// LightYellow return the argument as a color escaped string
-func LightYellow(arg interface{}) string {
-	return colorize(fmt.Sprint(arg), lightYellow)
-}
-
-// LightBlue return the argument as a color escaped string
-func LightBlue(arg interface{}) string {
-	return colorize(fmt.Sprint(arg), lightBlue)
-}
-
-// LightMagenta return the argument as a color escaped string
-func LightMagenta(arg interface{}) string {
-	return colorize(fmt.Sprint(arg), lightMagenta)
-}
-
-// LightCyan return the argument as a color escaped string
-func LightCyan(arg interface{}) string {
-	return colorize(fmt.Sprint(arg), lightCyan)
-}
-
-// White return the argument as a color escaped string
-func White(arg interface{}) string {
-	return colorize(fmt.Sprint(arg), white)
-}
-
-// colored return the ANSI colored formatted string.
-func colorize(arg string, color color) string {
-	if DisableColor {
-		return arg
+	var config *Config
+	if err = sprbox.LoadConfig(&config, configFiles...); err != nil {
+		return err
 	}
-	coloredFormat := "%v"
-	if len(color) > 0 {
-		coloredFormat = esc + "%vm%v" + clear
-		return fmt.Sprintf(coloredFormat, color, arg)
+
+	if err = l.setup(config); err != nil {
+		return err
 	}
-	return fmt.Sprintf(coloredFormat, arg)
+	return
+}
+
+func (l *Logger) setup(config *Config) error {
+	l.Out = os.Stdout
+
+	level, err := logrus.ParseLevel(config.Level)
+	if err != nil {
+		level = logrus.DebugLevel
+	}
+	l.Logger.Level = level
+	// config.Level
+	//log.Formatter = &logrus.JSONFormatter{
+	//	time.RFC3339,
+	//	false,
+	//	nil,
+	//}
+
+	l.Formatter = &logrus.TextFormatter{
+		ForceColors:            true,
+		DisableTimestamp:       false,
+		FullTimestamp:          true,
+		TimestampFormat:        "2006-01-02 15:04:05", // time.RFC3339, // //"2006-01-02 15:04 Z07:00",
+		DisableSorting:         false,
+		DisableLevelTruncation: true,
+		QuoteEmptyFields:       true,
+	}
+
+	if config.StackTrace {
+		l.AddHook(stack_trace.DefaultHook())
+	}
+
+	if len(config.PostgresLevel) > 0 {
+
+		dbConf := fmt.Sprintf("host=%s port=%d dbname=%s user=%s password=%s sslmode=disable",
+			config.Host, config.Port, config.DB, config.User, config.Password)
+
+		db, err := sql.Open("postgres", dbConf)
+		if err != nil {
+			return fmt.Errorf("[logger] can't connect to postgresql database: %v\nPostgres config: %+v\n", err, config)
+		}
+
+		//defer db.Close()
+
+		// NewAsyncHook
+		hook := pghook.NewHook(db, nil) //, map[string]interface{}{"this": "is logged every time"})
+		//defer hook.Flush()
+
+		pgLevel, err := logrus.ParseLevel(config.PostgresLevel)
+		if err != nil {
+			return fmt.Errorf("[logger] invalid postgres level, no log will be saved to it: %+v", config.PostgresLevel)
+		}
+
+		//hook.InsertFunc = func(db *sql.DB, entry *logrus.Entry) error {
+		//	jsonData, err := json.Marshal(entry.Data)
+		//	if err != nil {
+		//		return err
+		//	}
+		//
+		//	var errID int
+		//	err = db.QueryRow("INSERT INTO logs(level, message, message_data, created_at) VALUES ($1,$2,$3,$4) returning id", entry.Level, entry.Message, jsonData, entry.Time).Scan(&errID)
+		//
+		//	//entry.WithField("pg_err_id", errID)
+		//	entry.Data["pg_err_id"] = errID
+		//
+		//	return err
+		//}
+
+		hook.AddFilter(func(entry *logrus.Entry) *logrus.Entry {
+			// ignore entries
+			if _, ok := entry.Data["ignore"]; ok {
+				entry = nil
+			}
+			if entry.Level > pgLevel {
+				entry = nil
+			}
+			return entry
+		})
+
+		l.AddHook(hook)
+	}
+
+	return nil
 }

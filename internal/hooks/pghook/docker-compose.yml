@@ -9,4 +9,4 @@ services:
     links:
       - postgres
   postgres:
-    build: .
+    build: ""
