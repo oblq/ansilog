@@ -5,8 +5,6 @@ import (
 	"io"
 	"io/ioutil"
 	"net/http"
-	"strconv"
-	"time"
 
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/gommon/log"
@@ -105,99 +103,127 @@ func (l Logger) Panicj(j log.JSON) {
 	l.WithFields(logrus.Fields(j)).Panic()
 }
 
-// EchoHTTPErrorHandler is a custom echo http error handler which add some useful info to the log
-func (l *Logger) EchoHTTPErrorHandler(err error, c echo.Context) {
-	if he, ok := err.(*echo.HTTPError); ok {
+// EchoHTTPErrorHandler ------------------------------------------------------------------------------------------------
 
-		if he.Code > 399 &&
-			he.Code != http.StatusNotFound &&
-			he.Code != http.StatusUnauthorized &&
-			he.Code != http.StatusUnprocessableEntity {
+// EchoHTTPErrorHandler return a custom HTTP error handler. It sends a JSON response
+// with status code.
+func (l *Logger) EchoHTTPErrorHandler(debug, log bool) echo.HTTPErrorHandler {
+	return func(err error, c echo.Context) {
+		he, ok := err.(*echo.HTTPError)
+		if ok {
+			// skip details for common errors
+			if he.Code > 399 &&
+				he.Code != http.StatusNotFound &&
+				he.Code != http.StatusUnauthorized &&
+				he.Code != http.StatusUnprocessableEntity {
 
-			var params string
-
-			switch c.Request().Method {
-			case "GET":
-				params = fmt.Sprintf("%+v", c.Request().URL.Query())
-			case "POST", "PUT", "DELETE":
-				defer c.Request().Body.Close()
-				if b, e := ioutil.ReadAll(c.Request().Body); e == nil {
-					params = string(b)
+				var params string
+				switch c.Request().Method {
+				case "GET":
+					params = fmt.Sprintf("%+v", c.Request().URL.Query())
+				case "POST", "PUT", "DELETE":
+					if b, e := ioutil.ReadAll(c.Request().Body); e == nil {
+						params = string(b)
+					}
 				}
-			}
 
-			fields := logrus.Fields{
-				"skip":       3,
-				"http":       true,
-				"status":     he.Code,
-				"host":       c.Request().Host,
-				"method":     c.Request().Method,
-				"path":       c.Request().URL.Path,
-				"user_agent": c.Request().UserAgent(),
-				"params":     params,
-			}
+				fields := logrus.Fields{
+					"skip":           3,
+					"status":         he.Code,
+					"method":         c.Request().Method,
+					"host":           c.Request().Host,
+					"uri":            c.Request().RequestURI,
+					"user_agent":     c.Request().UserAgent(),
+					"params":         params,
+					"internal_error": he.Internal.Error(),
+				}
 
-			message, ok := he.Message.(string)
-			if !ok {
-				message = err.Error()
-			}
+				_ = c.Request().Body.Close()
 
-			l.WithError(err).WithFields(fields).Errorln(message)
+				if log {
+					l.WithError(err).WithFields(fields).Errorln(he.Message)
+				}
+			} else if log {
+				l.WithError(he).Errorln(he.Message)
+			}
+		} else {
+			he = &echo.HTTPError{
+				Code:     http.StatusInternalServerError,
+				Message:  http.StatusText(http.StatusInternalServerError),
+				Internal: err,
+			}
+			if log {
+				l.WithError(he).Errorln(he.Message)
+			}
 		}
-	} else {
-		code := http.StatusInternalServerError
-		errorPage := fmt.Sprintf("%d.html", code)
-		if err := c.File(errorPage); err != nil {
-			l.WithError(err).Errorln(err.Error())
-		}
-		l.WithError(err).Errorln(err.Error())
-	}
-}
 
-// returned from EchoMiddleware() below.
-func (l *Logger) echoMiddlewareHandler(c echo.Context, next echo.HandlerFunc) error {
-	req := c.Request()
-	res := c.Response()
-	start := time.Now()
-	if err := next(c); err != nil {
-		c.Error(err)
-	}
-	stop := time.Now()
+		// Send response
+		if !c.Response().Committed {
+			if c.Request().Method == http.MethodHead { // Issue #608
+				err = c.NoContent(he.Code)
+			} else {
+				if debug {
+					// err is *echo.HTTPError
+					//he.Message = err.Error() // produce a string
+					he.Message = map[string]interface{}{
+						"code":     he.Code,
+						"message":  he.Message,
+						"internal": he.Internal.Error(),
+					}
+				} else if m, ok := he.Message.(string); ok {
+					he.Message = map[string]interface{}{"message": m}
+				}
 
-	p := req.URL.Path
-	if p == "" {
-		p = "/"
-	}
-
-	bytesIn := req.Header.Get(echo.HeaderContentLength)
-	if bytesIn == "" {
-		bytesIn = "0"
-	}
-
-	l.WithFields(map[string]interface{}{
-		"time_rfc3339":  time.Now().Format(time.RFC3339),
-		"remote_ip":     c.RealIP(),
-		"host":          req.Host,
-		"uri":           req.RequestURI,
-		"method":        req.Method,
-		"path":          p,
-		"referer":       req.Referer(),
-		"user_agent":    req.UserAgent(),
-		"status":        res.Status,
-		"latency":       strconv.FormatInt(stop.Sub(start).Nanoseconds()/1000, 10),
-		"latency_human": stop.Sub(start).String(),
-		"bytes_in":      bytesIn,
-		"bytes_out":     strconv.FormatInt(res.Size, 10),
-	}).Info("Handled request")
-
-	return nil
-}
-
-// EchoMiddleware is an echo middleware that log http requests metrics
-func (l *Logger) EchoMiddleware() echo.MiddlewareFunc {
-	return func(next echo.HandlerFunc) echo.HandlerFunc {
-		return func(c echo.Context) error {
-			return l.echoMiddlewareHandler(c, next)
+				err = c.JSON(he.Code, he.Message)
+			}
 		}
 	}
 }
+
+//// returned from EchoMiddleware() below.
+//func (l *Logger) echoMiddlewareHandler(c echo.Context, next echo.HandlerFunc) error {
+//	req := c.Request()
+//	res := c.Response()
+//	start := time.Now()
+//	if err := next(c); err != nil {
+//		c.Error(err)
+//	}
+//	stop := time.Now()
+//
+//	p := req.URL.Path
+//	if p == "" {
+//		p = "/"
+//	}
+//
+//	bytesIn := req.Header.Get(echo.HeaderContentLength)
+//	if bytesIn == "" {
+//		bytesIn = "0"
+//	}
+//
+//	l.WithFields(map[string]interface{}{
+//		"time_rfc3339":  time.Now().Format(time.RFC3339),
+//		"remote_ip":     c.RealIP(),
+//		"host":          req.Host,
+//		"uri":           req.RequestURI,
+//		"method":        req.Method,
+//		"path":          p,
+//		"referer":       req.Referer(),
+//		"user_agent":    req.UserAgent(),
+//		"status":        res.Status,
+//		"latency":       strconv.FormatInt(stop.Sub(start).Nanoseconds()/1000, 10),
+//		"latency_human": stop.Sub(start).String(),
+//		"bytes_in":      bytesIn,
+//		"bytes_out":     strconv.FormatInt(res.Size, 10),
+//	}).Info("Handled request")
+//
+//	return nil
+//}
+//
+//// EchoMiddleware is an echo middleware that log http requests metrics
+//func (l *Logger) EchoMiddleware() echo.MiddlewareFunc {
+//	return func(next echo.HandlerFunc) echo.HandlerFunc {
+//		return func(c echo.Context) error {
+//			return l.echoMiddlewareHandler(c, next)
+//		}
+//	}
+//}

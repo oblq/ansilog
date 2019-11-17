@@ -3,7 +3,8 @@ package stack_trace
 import (
 	"strings"
 
-	"github.com/facebookgo/stack"
+	stack2 "github.com/oblq/ansilog/internal/hooks/stack_trace/stack"
+
 	"github.com/sirupsen/logrus"
 )
 
@@ -61,9 +62,9 @@ func (hook LogrusStackHook) Fire(entry *logrus.Entry) error {
 	}
 
 	// Get the complete stack track past skipFrames count.
-	_stack := stack.Callers(skipFrames)
+	_stack := stack2.Callers(skipFrames)
 
-	var stack stack.Stack
+	var stack stack2.Stack
 
 	// Remove logrus's own frames that seem to appear after the code is through
 	// certain hooks. e.g. http handler in a separate package.
