@@ -43,7 +43,6 @@ func (hook LogrusStackHook) Fire(entry *logrus.Entry) error {
 	// packages using Wrap() or WithStack() funcs.
 	if err, ok := entry.Data[logrus.ErrorKey]; ok {
 		entry.Data["stack"] = fmt.Sprintf("%+v", err)
-		fmt.Println(entry.Data["stack"])
 	}
 	return nil
 }
