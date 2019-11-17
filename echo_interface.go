@@ -105,11 +105,14 @@ func (l Logger) Panicj(j log.JSON) {
 
 // EchoHTTPErrorHandler ------------------------------------------------------------------------------------------------
 
-// EchoHTTPErrorHandler return a custom HTTP error handler. It sends a JSON response
+// NewEchoHTTPErrorHandler return a custom HTTP error handler. It sends a JSON response
 // with status code.
-func (l *Logger) EchoHTTPErrorHandler(debug, log bool) echo.HTTPErrorHandler {
+func (l *Logger) NewEchoHTTPErrorHandler(debug, log bool) echo.HTTPErrorHandler {
 	return func(err error, c echo.Context) {
 		he, ok := err.(*echo.HTTPError)
+
+		fields := logrus.Fields{}
+
 		if ok {
 			// skip details for common errors
 			if he.Code > 399 &&
@@ -117,43 +120,31 @@ func (l *Logger) EchoHTTPErrorHandler(debug, log bool) echo.HTTPErrorHandler {
 				he.Code != http.StatusUnauthorized &&
 				he.Code != http.StatusUnprocessableEntity {
 
-				var params string
 				switch c.Request().Method {
 				case "GET":
-					params = fmt.Sprintf("%+v", c.Request().URL.Query())
+					fields["params"] = fmt.Sprintf("%+v", c.Request().URL.Query())
 				case "POST", "PUT", "DELETE":
 					if b, e := ioutil.ReadAll(c.Request().Body); e == nil {
-						params = string(b)
+						fields["params"] = string(b)
 					}
 				}
+				fields["skip"] = 3
+				fields["status"] = he.Code
+				fields["method"] = c.Request().Method
+				fields["host"] = c.Request().Host
+				fields["uri"] = c.Request().RequestURI
+				fields["user_agent"] = c.Request().UserAgent()
 
-				fields := logrus.Fields{
-					"skip":           3,
-					"status":         he.Code,
-					"method":         c.Request().Method,
-					"host":           c.Request().Host,
-					"uri":            c.Request().RequestURI,
-					"user_agent":     c.Request().UserAgent(),
-					"params":         params,
-					"internal_error": he.Internal.Error(),
-				}
-
+				// extract stack-trace from errors created with "github.com/pkg/errors"
+				// packages using Wrap() or WithStack() funcs.
+				//fields["stack"] = fmt.Sprintf("%+v", he.Internal)
 				_ = c.Request().Body.Close()
-
-				if log {
-					l.WithError(err).WithFields(fields).Errorln(he.Message)
-				}
-			} else if log {
-				l.WithError(he).Errorln(he.Message)
 			}
 		} else {
 			he = &echo.HTTPError{
 				Code:     http.StatusInternalServerError,
 				Message:  http.StatusText(http.StatusInternalServerError),
 				Internal: err,
-			}
-			if log {
-				l.WithError(he).Errorln(he.Message)
 			}
 		}
 
@@ -163,15 +154,17 @@ func (l *Logger) EchoHTTPErrorHandler(debug, log bool) echo.HTTPErrorHandler {
 				err = c.NoContent(he.Code)
 			} else {
 				if debug {
-					// err is *echo.HTTPError
-					//he.Message = err.Error() // produce a string
-					he.Message = map[string]interface{}{
-						"code":     he.Code,
-						"message":  he.Message,
-						"internal": he.Internal.Error(),
+					if log {
+						l.WithError(he.Internal).WithFields(fields).Errorln(he.Error())
 					}
+					he.Message = map[string]interface{}{"message": he.Error()}
 				} else if m, ok := he.Message.(string); ok {
+					if log {
+						l.WithError(he.Internal).WithFields(fields).Errorln(m)
+					}
 					he.Message = map[string]interface{}{"message": m}
+				} else if log {
+					l.WithError(he.Internal).WithFields(fields).Errorln(he.Message)
 				}
 
 				err = c.JSON(he.Code, he.Message)
@@ -179,51 +172,3 @@ func (l *Logger) EchoHTTPErrorHandler(debug, log bool) echo.HTTPErrorHandler {
 		}
 	}
 }
-
-//// returned from EchoMiddleware() below.
-//func (l *Logger) echoMiddlewareHandler(c echo.Context, next echo.HandlerFunc) error {
-//	req := c.Request()
-//	res := c.Response()
-//	start := time.Now()
-//	if err := next(c); err != nil {
-//		c.Error(err)
-//	}
-//	stop := time.Now()
-//
-//	p := req.URL.Path
-//	if p == "" {
-//		p = "/"
-//	}
-//
-//	bytesIn := req.Header.Get(echo.HeaderContentLength)
-//	if bytesIn == "" {
-//		bytesIn = "0"
-//	}
-//
-//	l.WithFields(map[string]interface{}{
-//		"time_rfc3339":  time.Now().Format(time.RFC3339),
-//		"remote_ip":     c.RealIP(),
-//		"host":          req.Host,
-//		"uri":           req.RequestURI,
-//		"method":        req.Method,
-//		"path":          p,
-//		"referer":       req.Referer(),
-//		"user_agent":    req.UserAgent(),
-//		"status":        res.Status,
-//		"latency":       strconv.FormatInt(stop.Sub(start).Nanoseconds()/1000, 10),
-//		"latency_human": stop.Sub(start).String(),
-//		"bytes_in":      bytesIn,
-//		"bytes_out":     strconv.FormatInt(res.Size, 10),
-//	}).Info("Handled request")
-//
-//	return nil
-//}
-//
-//// EchoMiddleware is an echo middleware that log http requests metrics
-//func (l *Logger) EchoMiddleware() echo.MiddlewareFunc {
-//	return func(next echo.HandlerFunc) echo.HandlerFunc {
-//		return func(c echo.Context) error {
-//			return l.echoMiddlewareHandler(c, next)
-//		}
-//	}
-//}

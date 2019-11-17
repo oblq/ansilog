@@ -13,7 +13,11 @@ import (
 )
 
 type Config struct {
-	Level      string
+	Level string
+
+	// StackTrace will extract stack-trace from errors created
+	// with "github.com/pkg/errors" package
+	// using Wrap() or WithStack() funcs.
 	StackTrace bool
 
 	// Postgres
@@ -29,19 +33,20 @@ type Logger struct {
 	*logrus.Logger
 }
 
-func NewLogger(configFilePath string, config *Config) *Logger {
-	log := &Logger{Logger: logrus.New()}
+func NewLogger(configFilePath string, config *Config) (logger *Logger, err error) {
+	logger = &Logger{Logger: logrus.New()}
 
 	if len(configFilePath) > 0 {
-		if compsConfigFile, err := ioutil.ReadFile(configFilePath); err != nil {
-			log.Fatalln("wrong config path:", err)
+		var compsConfigFile []byte
+		if compsConfigFile, err = ioutil.ReadFile(configFilePath); err != nil {
+			return
 		} else if err = sprbox.Unmarshal(compsConfigFile, &config); err != nil {
-			log.Fatalln("can't unmarshal config file:", err)
+			return
 		}
 	}
 
-	log.setup(config)
-	return log
+	err = logger.setup(config)
+	return
 }
 
 func (l *Logger) SpareConfig(configFiles []string) (err error) {
@@ -52,9 +57,6 @@ func (l *Logger) SpareConfig(configFiles []string) (err error) {
 		return err
 	}
 
-	//if err = sprbox.LoadConfig(&config.Postgres, configFiles...); err != nil {
-	//	return err
-	//}
 	if err = l.setup(config); err != nil {
 		return err
 	}

@@ -49,6 +49,7 @@ func NewHttpTracer(prefix string) *HttpTracer {
 
 func (hl *HttpTracer) trace(rw interface{}, r *http.Request, start time.Time) {
 	duration := time.Since(start)
+
 	metricsEntry := struct {
 		Time          string
 		Proto         string
@@ -86,11 +87,7 @@ func (hl *HttpTracer) fetchStatusCode(rw interface{}) string {
 	statusCode := 0
 
 	// Compatible with negroni custom ResponseWriter
-	type customRW interface {
-		Status() int
-	}
-
-	if crw, ok := rw.(customRW); ok {
+	if crw, ok := rw.(interface{ Status() int }); ok {
 		statusCode = crw.Status()
 	} else if echoResponse, ok := rw.(*echo.Response); ok {
 		statusCode = echoResponse.Status
