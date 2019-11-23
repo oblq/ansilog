@@ -105,8 +105,8 @@ func (l Logger) Panicj(j log.JSON) {
 
 // EchoHTTPErrorHandler ------------------------------------------------------------------------------------------------
 
-// NewEchoHTTPErrorHandler return a custom HTTP error handler. It sends a JSON response
-// with status code.
+// NewEchoHTTPErrorHandler return a custom HTTP error handler.
+// It sends a JSON response with status code.
 func (l *Logger) NewEchoHTTPErrorHandler(debug, log bool) echo.HTTPErrorHandler {
 	return func(err error, c echo.Context) {
 		he, ok := err.(*echo.HTTPError)

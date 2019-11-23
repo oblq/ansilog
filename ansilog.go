@@ -2,7 +2,9 @@ package ansilog
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"os"
 
@@ -13,6 +15,15 @@ import (
 )
 
 type Config struct {
+	// Out is a writer where logs are written.
+	// Optional. Default value is os.Stdout.
+	Out io.Writer
+
+	// The logging level the logger should log at.
+	// This defaults to `info`, which allows
+	// Info(), Warn(), Error() and Fatal() to be logged.
+	// Allowed values are:
+	// panic, fatal, error, warn, warning, info, debug and trace.
 	Level string
 
 	// StackTrace will extract stack-trace from errors created
@@ -33,16 +44,25 @@ type Logger struct {
 	*logrus.Logger
 }
 
-func NewLogger(configFilePath string, config *Config) (logger *Logger, err error) {
+func NewWithConfig(config Config) (logger *Logger, err error) {
+	logger = &Logger{Logger: logrus.New()}
+	err = logger.setup(config)
+	return
+}
+
+func NewWithConfigFile(configFilePath string) (logger *Logger, err error) {
+	if len(configFilePath) == 0 {
+		return nil, errors.New("a valid config file path must be provided")
+	}
+
 	logger = &Logger{Logger: logrus.New()}
 
-	if len(configFilePath) > 0 {
-		var compsConfigFile []byte
-		if compsConfigFile, err = ioutil.ReadFile(configFilePath); err != nil {
-			return
-		} else if err = sprbox.Unmarshal(compsConfigFile, &config); err != nil {
-			return
-		}
+	var config Config
+	var compsConfigFile []byte
+	if compsConfigFile, err = ioutil.ReadFile(configFilePath); err != nil {
+		return
+	} else if err = sprbox.Unmarshal(compsConfigFile, &config); err != nil {
+		return
 	}
 
 	err = logger.setup(config)
@@ -52,7 +72,7 @@ func NewLogger(configFilePath string, config *Config) (logger *Logger, err error
 func (l *Logger) SpareConfig(configFiles []string) (err error) {
 	l.Logger = logrus.New()
 
-	var config *Config
+	var config Config
 	if err = sprbox.LoadConfig(&config, configFiles...); err != nil {
 		return err
 	}
@@ -63,12 +83,16 @@ func (l *Logger) SpareConfig(configFiles []string) (err error) {
 	return
 }
 
-func (l *Logger) setup(config *Config) error {
-	l.Out = os.Stdout
+func (l *Logger) setup(config Config) error {
+	if config.Out != nil {
+		l.Out = config.Out
+	} else {
+		l.Out = os.Stdout
+	}
 
 	level, err := logrus.ParseLevel(config.Level)
 	if err != nil {
-		level = logrus.DebugLevel
+		level = logrus.InfoLevel
 	}
 	l.Logger.Level = level
 	// config.Level

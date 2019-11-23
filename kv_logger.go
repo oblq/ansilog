@@ -31,9 +31,9 @@ func NewKVLogger(configFilePath string, config *KVConfig) *KVLogger {
 	}
 
 	kvl := &KVLogger{}
-	kvl.KeyPainter = dynamicPainter(color(config.KeyColor))
+	kvl.KeyPainter = NewPainter(color(config.KeyColor))
 	kvl.KeyMinColWidth = config.KeyMinColWidth
-	kvl.ValuePainter = dynamicPainter(color(config.ValColor))
+	kvl.ValuePainter = NewPainter(color(config.ValColor))
 
 	return kvl
 }
@@ -45,9 +45,9 @@ func (kvl *KVLogger) SpareConfig(configFiles []string) (err error) {
 		return err
 	}
 
-	kvl.KeyPainter = dynamicPainter(color(config.KeyColor))
+	kvl.KeyPainter = NewPainter(color(config.KeyColor))
 	kvl.KeyMinColWidth = config.KeyMinColWidth
-	kvl.ValuePainter = dynamicPainter(color(config.ValColor))
+	kvl.ValuePainter = NewPainter(color(config.ValColor))
 
 	return
 }
