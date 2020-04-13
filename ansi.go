@@ -27,23 +27,23 @@ const (
 	// from gin
 	defaultFG color = "39"
 
-	// fixme: test
-	green   color = "97;42m"
-	white   color = "90;47m"
-	yellow  color = "90;43m"
-	red     color = "97;41m"
-	blue    color = "97;44m"
-	magenta color = "97;45m"
-	cyan    color = "97;46m"
+	// background colors
+	bg_green   color = "97;42m"
+	bg_white   color = "90;47m"
+	bg_yellow  color = "90;43m"
+	bg_red     color = "97;41m"
+	bg_blue    color = "97;44m"
+	bg_magenta color = "97;45m"
+	bg_cyan    color = "97;46m"
 
-	black color = "97m" // inverted with white
-	//white        color = "30m" // inverted with black
-	//red          color = "31m"
-	//green        color = "32m"
-	//yellow       color = "33m"
-	//blue         color = "34m"
-	//magenta      color = "35m"
-	//cyan         color = "36m"
+	white        color = "97m"
+	black        color = "30m"
+	red          color = "31m"
+	green        color = "32m"
+	yellow       color = "33m"
+	blue         color = "34m"
+	magenta      color = "35m"
+	cyan         color = "36m"
 	lightGrey    color = "37m"
 	darkGrey     color = "90m"
 	lightRed     color = "91m"
@@ -65,10 +65,10 @@ func IsTerm(out io.Writer) bool {
 	return true
 }
 
-type painter func(interface{}) string
+type Painter func(interface{}) string
 
 // NewPainter is a PainterFunc which return a painter that can be stored and reused.
-func NewPainter(color color) painter {
+func NewPainter(color color) Painter {
 	return func(arg interface{}) string {
 		return colored(fmt.Sprint(arg), color)
 	}
@@ -76,7 +76,7 @@ func NewPainter(color color) painter {
 
 // NewDynamicPainter is a PainterFunc which return a painter that can be stored and reused.
 // It also takes a func to determine if it must use colors or not.
-func NewDynamicPainter(color color, mustPaint func() bool) painter {
+func NewDynamicPainter(color color, mustPaint func() bool) Painter {
 	return func(arg interface{}) string {
 		if mustPaint != nil {
 			if !mustPaint() {

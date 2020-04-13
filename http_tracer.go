@@ -3,7 +3,6 @@ package ansilog
 import (
 	"bytes"
 	"fmt"
-	"io"
 	"log"
 	"net/http"
 	"os"
@@ -15,9 +14,10 @@ import (
 	"github.com/urfave/negroni"
 )
 
-const defaultLogTemplate = "{{.Time}} | {{.Latency}} | {{.Status}} | {{.Method}} | {{.Host}} | {{.RequestURI}}"
+const defaultLogTemplate = "{{.Host}} {{.Time}} | {{.Latency}} | {{.Status}} | {{.Method}} {{.RequestURI}}"
 
-// HttpTracer is a middleware that logs http requests.
+type SkipperFunc func(r *http.Request) (shouldSkip bool)
+
 type HttpTracer struct {
 	*log.Logger
 
@@ -35,52 +35,57 @@ type HttpTracer struct {
 	// 	UserAgent
 	// 	RequestURI
 	// 	Proto
-	// Default format is: "{{.Time}} | {{.Latency}} | {{.Status}} | {{.Method}} | {{.Host}} | {{.RequestURI}}"
+	// Default format is: "{{.Host}} {{.Time}} | {{.Latency}} | {{.Status}} | {{.Method}} {{.RequestURI}}"
 	Template *template.Template
+
+	Skipper SkipperFunc
 
 	// Colors ------------------------------------------------
 
-	ConsoleColorsMode ConsoleColorsModeEnum
-	outIsTerm         bool
-
-	black   painter
-	white   painter
-	red     painter
-	green   painter
-	yellow  painter
-	blue    painter
-	magenta painter
-	cyan    painter
+	black   Painter
+	white   Painter
+	red     Painter
+	green   Painter
+	yellow  Painter
+	blue    Painter
+	magenta Painter
+	cyan    Painter
 }
 
 // NewHttpTracer returns a new HttpTracer instance.
-func NewHttpTracer(prefix string) *HttpTracer {
+func NewHttpTracer(skipper SkipperFunc) *HttpTracer {
+	out := os.Stdout
+
 	tracer := &HttpTracer{
-		TimeFormat:        time.RFC822Z, //"2006-01-02 15:04:05"
-		Template:          template.Must(template.New("ansilog_parser").Parse(defaultLogTemplate)),
-		ConsoleColorsMode: ConsoleColorsModeAuto,
-		outIsTerm:         true,
+		Logger:     log.New(out, "", 0),
+		TimeFormat: "2006-01-02 15:04:05.000 MST", //time.RFC3339Nano time.RFC822Z, //"2006-01-02 15:04:05"
+		Template:   template.Must(template.New("ansilog_parser").Parse(defaultLogTemplate)),
+		Skipper:    skipper,
 	}
 
-	var out io.Writer
-	out = os.Stdout
-	tracer.outIsTerm = IsTerm(out)
+	if IsTerm(out) {
+		tracer.black = NewPainter(black)
+		tracer.white = NewPainter(white)
+		tracer.red = NewPainter(red)
+		tracer.green = NewPainter(green)
+		tracer.yellow = NewPainter(yellow)
+		tracer.blue = NewPainter(blue)
+		tracer.magenta = NewPainter(magenta)
+		tracer.cyan = NewPainter(cyan)
+	} else {
+		painter := func(arg interface{}) string {
+			return fmt.Sprint(arg)
+		}
 
-	var mustPaint = func() bool {
-		return tracer.ConsoleColorsMode == ConsoleColorsModeEnabled ||
-			(tracer.ConsoleColorsMode == ConsoleColorsModeAuto && tracer.outIsTerm)
+		tracer.black = painter
+		tracer.white = painter
+		tracer.red = painter
+		tracer.green = painter
+		tracer.yellow = painter
+		tracer.blue = painter
+		tracer.magenta = painter
+		tracer.cyan = painter
 	}
-
-	tracer.black = NewDynamicPainter(black, mustPaint)
-	tracer.white = NewDynamicPainter(white, mustPaint)
-	tracer.red = NewDynamicPainter(red, mustPaint)
-	tracer.green = NewDynamicPainter(green, mustPaint)
-	tracer.yellow = NewDynamicPainter(yellow, mustPaint)
-	tracer.blue = NewDynamicPainter(blue, mustPaint)
-	tracer.magenta = NewDynamicPainter(magenta, mustPaint)
-	tracer.cyan = NewDynamicPainter(cyan, mustPaint)
-
-	tracer.Logger = log.New(out, tracer.blue("[")+tracer.yellow(prefix)+tracer.blue("] "), 0)
 
 	return tracer
 }
@@ -88,6 +93,7 @@ func NewHttpTracer(prefix string) *HttpTracer {
 func (hl *HttpTracer) trace(rw interface{}, r *http.Request, start time.Time) {
 	latency := time.Since(start)
 	if latency > time.Minute {
+		// truncate to seconds
 		latency = latency - latency%time.Second
 	}
 
@@ -103,15 +109,15 @@ func (hl *HttpTracer) trace(rw interface{}, r *http.Request, start time.Time) {
 		RequestURI    string
 		UserAgent     string
 	}{
-		Time:       start.Format(hl.TimeFormat),
+		Time:       start.UTC().Format(hl.TimeFormat),
 		Proto:      r.Proto,
 		RemoteAddr: fmt.Sprintf("%-14s", r.RemoteAddr),
 		Status:     fmt.Sprintf("%3s", hl.fetchStatusCode(rw)),
-		Method:     fmt.Sprintf("%-7s", hl.coloredMethod(r.Method)),
+		Method:     hl.coloredMethod(r.Method),
 		Latency:    fmt.Sprintf("%13s", latency),
 		//ContentLength: fmt.Sprintf("%12s bytes", hl.fetchLength(rw)),
-		Host:       fmt.Sprintf("%-22s", r.Host),
-		RequestURI: r.RequestURI, // path will exclude '/v1'
+		Host:       hl.blue("[") + hl.yellow(r.Host) + hl.blue("]"), // fmt.Sprintf("%-22s", r.Host),
+		RequestURI: r.RequestURI,                                    // path will exclude '/v1'
 		UserAgent:  r.UserAgent(),
 	}
 	buff := &bytes.Buffer{}
@@ -124,27 +130,28 @@ func (hl *HttpTracer) trace(rw interface{}, r *http.Request, start time.Time) {
 
 // MethodColor is the ANSI color for appropriately logging http method to a terminal.
 func (hl *HttpTracer) coloredMethod(method string) string {
+	resizedMethod := fmt.Sprintf("%-7s", method)
 	switch method {
 	case "GET":
-		return hl.green(method)
+		return hl.green(resizedMethod)
 		//return Blue(method)
 	case "POST":
-		return hl.blue(method)
+		return hl.blue(resizedMethod)
 		//return Cyan(method)
 	case "PUT":
-		return hl.cyan(method)
+		return hl.cyan(resizedMethod)
 		//return Yellow(method)
 	case "DELETE":
-		return hl.red(method)
+		return hl.red(resizedMethod)
 	case "PATCH":
-		return hl.yellow(method)
+		return hl.yellow(resizedMethod)
 		//return hl.green(method)
 	case "HEAD":
-		return hl.magenta(method)
+		return hl.magenta(resizedMethod)
 	case "OPTIONS":
-		return hl.white(method)
+		return hl.white(resizedMethod)
 	default:
-		return method
+		return resizedMethod
 	}
 }
 

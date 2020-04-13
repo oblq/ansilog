@@ -2,10 +2,9 @@ package ansilog
 
 import (
 	"fmt"
-	"io/ioutil"
 	"strconv"
 
-	"github.com/oblq/sprbox"
+	"github.com/oblq/swap"
 )
 
 type KVConfig struct {
@@ -16,16 +15,14 @@ type KVConfig struct {
 
 // KVLogger is the ansilog instance type for Key-Value logging.
 type KVLogger struct {
-	KeyPainter     painter
+	KeyPainter     Painter
 	KeyMinColWidth int
-	ValuePainter   painter
+	ValuePainter   Painter
 }
 
 func NewKVLogger(configFilePath string, config *KVConfig) *KVLogger {
 	if len(configFilePath) > 0 {
-		if compsConfigFile, err := ioutil.ReadFile(configFilePath); err != nil {
-			panic("wrong config path:" + err.Error())
-		} else if err = sprbox.Unmarshal(compsConfigFile, &config); err != nil {
+		if err := swap.Parse(&config, configFilePath); err != nil {
 			panic("can't unmarshal config file:" + err.Error())
 		}
 	}
@@ -41,7 +38,7 @@ func NewKVLogger(configFilePath string, config *KVConfig) *KVLogger {
 // Go2Box is the https://github.com/oblq/boxes 'boxable' interface implementation.
 func (kvl *KVLogger) SpareConfig(configFiles []string) (err error) {
 	var config *KVConfig
-	if err = sprbox.LoadConfig(&config, configFiles...); err != nil {
+	if err = swap.Parse(&config, configFiles...); err != nil {
 		return err
 	}
 

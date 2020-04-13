@@ -5,12 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
 
+	_ "github.com/lib/pq"
 	"github.com/oblq/ansilog/internal/hooks/pghook"
 	"github.com/oblq/ansilog/internal/hooks/stack_trace"
-	"github.com/oblq/sprbox"
+	"github.com/oblq/swap"
 	"github.com/sirupsen/logrus"
 )
 
@@ -31,13 +31,16 @@ type Config struct {
 	// using Wrap() or WithStack() funcs.
 	StackTrace bool
 
-	// Postgres
+	// PostgresLevel > 0 will initialize a new postgres instance for the corresponding hook,
+	// also, postgres parameters must be provided in that case
 	PostgresLevel string
-	Host          string
-	Port          int
-	DB            string
-	User          string
-	Password      string
+
+	// Postgres
+	Host     string
+	Port     int
+	DB       string
+	User     string
+	Password string
 }
 
 type Logger struct {
@@ -50,7 +53,7 @@ func NewWithConfig(config Config) (logger *Logger, err error) {
 	return
 }
 
-func NewWithConfigFile(configFilePath string) (logger *Logger, err error) {
+func NewWithConfigPath(configFilePath string) (logger *Logger, err error) {
 	if len(configFilePath) == 0 {
 		return nil, errors.New("a valid config file path must be provided")
 	}
@@ -58,10 +61,7 @@ func NewWithConfigFile(configFilePath string) (logger *Logger, err error) {
 	logger = &Logger{Logger: logrus.New()}
 
 	var config Config
-	var compsConfigFile []byte
-	if compsConfigFile, err = ioutil.ReadFile(configFilePath); err != nil {
-		return
-	} else if err = sprbox.Unmarshal(compsConfigFile, &config); err != nil {
+	if err = swap.Parse(&config, configFilePath); err != nil {
 		return
 	}
 
@@ -69,11 +69,11 @@ func NewWithConfigFile(configFilePath string) (logger *Logger, err error) {
 	return
 }
 
-func (l *Logger) SpareConfig(configFiles []string) (err error) {
+func (l *Logger) Configure(configFiles ...string) (err error) {
 	l.Logger = logrus.New()
 
 	var config Config
-	if err = sprbox.LoadConfig(&config, configFiles...); err != nil {
+	if err = swap.Parse(&config, configFiles...); err != nil {
 		return err
 	}
 
@@ -113,7 +113,7 @@ func (l *Logger) setup(config Config) error {
 	}
 
 	if config.StackTrace {
-		l.AddHook(stack_trace.DefaultHook())
+		l.AddHook(stack_trace.New())
 	}
 
 	if len(config.PostgresLevel) > 0 {
@@ -129,7 +129,7 @@ func (l *Logger) setup(config Config) error {
 		//defer db.Close()
 
 		// NewAsyncHook
-		hook := pghook.NewHook(db, nil) //, map[string]interface{}{"this": "is logged every time"})
+		hook := pghook.NewHook(db)
 		//defer hook.Flush()
 
 		pgLevel, err := logrus.ParseLevel(config.PostgresLevel)
@@ -137,29 +137,14 @@ func (l *Logger) setup(config Config) error {
 			return fmt.Errorf("[logger] invalid postgres level, no log will be saved to it: %+v", config.PostgresLevel)
 		}
 
-		//hook.InsertFunc = func(db *sql.DB, entry *logrus.Entry) error {
-		//	jsonData, err := json.Marshal(entry.Data)
-		//	if err != nil {
-		//		return err
-		//	}
-		//
-		//	var errID int
-		//	err = db.QueryRow("INSERT INTO logs(level, message, message_data, created_at) VALUES ($1,$2,$3,$4) returning id", entry.Level, entry.Message, jsonData, entry.Time).Scan(&errID)
-		//
-		//	//entry.WithField("pg_err_id", errID)
-		//	entry.Data["pg_err_id"] = errID
-		//
-		//	return err
-		//}
-
 		hook.AddFilter(func(entry *logrus.Entry) *logrus.Entry {
-			// ignore entries
-			if _, ok := entry.Data["ignore"]; ok {
-				entry = nil
+			if entry != nil {
+				// ignore entries
+				if _, ignore := entry.Data["ignore"]; ignore || entry.Level > pgLevel {
+					entry = nil
+				}
 			}
-			if entry.Level > pgLevel {
-				entry = nil
-			}
+
 			return entry
 		})
 
