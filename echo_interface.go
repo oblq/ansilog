@@ -107,7 +107,8 @@ func (l Logger) Panicj(j log.JSON) {
 
 // NewEchoHTTPErrorHandler return a custom HTTP error handler.
 // It sends a JSON response with status code.
-func (l *Logger) NewEchoHTTPErrorHandler(debug, log bool) echo.HTTPErrorHandler {
+// Debug true will print detailed information.
+func (l *Logger) NewEchoHTTPErrorHandler(debug bool, logSkipper func(err *echo.HTTPError) bool) echo.HTTPErrorHandler {
 	return func(err error, c echo.Context) {
 		he, ok := err.(*echo.HTTPError)
 
@@ -154,16 +155,16 @@ func (l *Logger) NewEchoHTTPErrorHandler(debug, log bool) echo.HTTPErrorHandler 
 				err = c.NoContent(he.Code)
 			} else {
 				if debug {
-					if log {
+					if !logSkipper(he) {
 						l.WithError(he.Internal).WithFields(fields).Errorln(he.Error())
 					}
 					he.Message = map[string]interface{}{"message": he.Error()}
 				} else if m, ok := he.Message.(string); ok {
-					if log {
+					if !logSkipper(he) {
 						l.WithError(he.Internal).WithFields(fields).Errorln(m)
 					}
 					he.Message = map[string]interface{}{"message": m}
-				} else if log {
+				} else if !logSkipper(he) {
 					l.WithError(he.Internal).WithFields(fields).Errorln(he.Message)
 				}
 

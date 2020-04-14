@@ -56,7 +56,7 @@ func NewHook(db *sql.DB) *Hook {
 				return err
 			}
 
-			_, err = db.Exec("INSERT INTO logs(level, message, message_data, created_at) VALUES ($1,$2,$3,$4);",
+			_, err = db.Exec("INSERT INTO logs (level, message, message_data, ts) VALUES ($1,$2,$3,$4);",
 				entry.Level, entry.Message, jsonData, entry.Time)
 			if err != nil {
 				return fmt.Errorf("postgres: %s", err.Error())
@@ -125,7 +125,7 @@ func NewAsyncHook(db *sql.DB, bufferSize uint) *AsyncHook {
 				return err
 			}
 
-			_, err = tx.Exec("INSERT INTO logs(level, message, error, message_data, created_at) VALUES ($1,$2,$3,$4);",
+			_, err = tx.Exec("INSERT INTO logs(level, message, error, message_data, ts) VALUES ($1,$2,$3,$4);",
 				entry.Level, entry.Message, jsonData, entry.Time)
 			if err != nil {
 				return fmt.Errorf("postgres: %s", err.Error())
