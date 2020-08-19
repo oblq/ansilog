@@ -91,6 +91,11 @@ func NewHttpTracer(skipper SkipperFunc) *HttpTracer {
 }
 
 func (hl *HttpTracer) trace(rw interface{}, r *http.Request, start time.Time) {
+
+	if hl.Skipper(r) {
+		return
+	}
+
 	latency := time.Since(start)
 	if latency > time.Minute {
 		// truncate to seconds
