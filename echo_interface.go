@@ -129,7 +129,6 @@ func (l *Logger) NewEchoHTTPErrorHandler(debug bool, logSkipper func(err *echo.H
 						fields["params"] = string(b)
 					}
 				}
-				fields["skip"] = 3
 				fields["status"] = he.Code
 				fields["method"] = c.Request().Method
 				fields["host"] = c.Request().Host

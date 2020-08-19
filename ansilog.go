@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"time"
 
 	_ "github.com/lib/pq"
 	"github.com/oblq/ansilog/internal/hooks/pghook"
@@ -106,11 +107,21 @@ func (l *Logger) setup(config Config) error {
 		ForceColors:            true,
 		DisableTimestamp:       false,
 		FullTimestamp:          true,
-		TimestampFormat:        "2006-01-02 15:04:05", // time.RFC3339, // //"2006-01-02 15:04 Z07:00",
+		TimestampFormat:        time.RFC3339, //"2006-01-02 15:04:05", // time.RFC3339, // //"2006-01-02 15:04 Z07:00", 2006-01-02T15:04:05-0700
 		DisableSorting:         false,
 		DisableLevelTruncation: true,
 		QuoteEmptyFields:       true,
 	}
+
+	//l.Formatter = &logrus.JSONFormatter{
+	//	TimestampFormat:   "2006-01-02 15:04:05",
+	//	DisableTimestamp:  false,
+	//	DisableHTMLEscape: false,
+	//	DataKey:           "",
+	//	FieldMap:          nil,
+	//	CallerPrettyfier:  nil,
+	//	PrettyPrint:       true,
+	//}
 
 	if config.StackTrace {
 		l.AddHook(stack_trace.New())

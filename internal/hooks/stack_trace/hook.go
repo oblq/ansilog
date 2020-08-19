@@ -27,7 +27,11 @@ func (hook LogrusStackHook) Fire(entry *logrus.Entry) error {
 	// extract stack-trace from errors created with "github.com/pkg/errors"
 	// packages using Wrap() or WithStack() funcs.
 	if err, ok := entry.Data[logrus.ErrorKey]; ok {
-		entry.Data["stack"] = fmt.Sprintf("%+v", err)
+		stack := fmt.Sprintf("%+v", err)
+		// escape new lines
+		//consecutiveNewLines := regexp.MustCompile(`\n`)
+		//stack = consecutiveNewLines.ReplaceAllString(stack, "\n")
+		entry.Data["stack"] = stack
 	}
 	return nil
 }
